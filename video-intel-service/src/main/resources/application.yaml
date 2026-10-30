@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: video-intel-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/video-intel-db
+    username: postgres
+    password: postgres
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: videointel
+    password: videointel123
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: videointel
+  secret-key: videointel123
+  bucket: videos
+  presigned-url-expiry-minutes: 15
+
+jwt:
+  # Dev-only secret. Must be at least 32 bytes for HS256 - move this to an env var / secrets
+  # manager before this ever runs anywhere but your own machine.
+  secret: "dev-only-secret-change-me-before-any-real-deployment-32bytes+"
+  expiration-minutes: 60
+
+cors:
+  allowed-origins:
+    - http://localhost:5173

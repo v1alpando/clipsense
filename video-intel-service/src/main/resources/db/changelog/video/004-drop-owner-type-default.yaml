@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-drop-owner-type-default
+      author: arman
+      changes:
+        - dropDefaultValue:
+            schemaName: videos
+            tableName: videos
+            columnName: owner_type

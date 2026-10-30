@@ -1,0 +1,40 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-create-outbox-messages-table
+      author: arman
+      changes:
+        - createTable:
+            schemaName: analysis
+            tableName: outbox_messages
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: message_type
+                  type: varchar(100)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: payload
+                  type: text
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false
+              - column:
+                  name: processed_at
+                  type: timestamp with time zone
+        - createIndex:
+            schemaName: analysis
+            tableName: outbox_messages
+            indexName: idx_outbox_messages_unprocessed
+            columns:
+              - column:
+                  name: processed_at

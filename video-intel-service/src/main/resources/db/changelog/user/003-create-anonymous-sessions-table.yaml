@@ -1,0 +1,25 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-anonymous-sessions-table
+      author: arman
+      changes:
+        - createTable:
+            schemaName: users
+            tableName: anonymous_sessions
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false
+              - column:
+                  name: expires_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false

@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-add-failed-reason-to-videos
+      author: arman
+      changes:
+        - addColumn:
+            schemaName: videos
+            tableName: videos
+            columns:
+              - column:
+                  name: failed_reason
+                  type: varchar(1000)

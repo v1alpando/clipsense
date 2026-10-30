@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-add-owner-type-to-videos
+      author: arman
+      changes:
+        - addColumn:
+            schemaName: videos
+            tableName: videos
+            columns:
+              - column:
+                  name: owner_type
+                  type: varchar(20)
+                  defaultValue: USER
+                  constraints:
+                    nullable: false

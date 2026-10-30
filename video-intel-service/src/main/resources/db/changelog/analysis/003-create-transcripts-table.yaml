@@ -1,0 +1,32 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-transcripts-table
+      author: arman
+      changes:
+        - createTable:
+            schemaName: analysis
+            tableName: transcripts
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: video_id
+                  type: uuid
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_transcripts_video_id
+              - column:
+                  name: text
+                  type: text
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false

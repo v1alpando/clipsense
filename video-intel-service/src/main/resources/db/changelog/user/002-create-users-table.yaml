@@ -1,0 +1,27 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-create-users-table
+      author: arman
+      changes:
+        - createTable:
+            schemaName: users
+            tableName: users
+            columns:
+              - column:
+                  name: id
+                  type: uuid
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: email
+                  type: varchar(320)
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_users_email
+              - column:
+                  name: created_at
+                  type: timestamp with time zone
+                  constraints:
+                    nullable: false
