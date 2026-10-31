@@ -42,14 +42,14 @@
 
 ---
 
-## 2. Текущий статус задач по агентам (Sprint 0: Foundation)
+## 2. Текущий статус задач по агентам (Sprint 0: Foundation & Media Pipeline Slice)
 
 | Агент | Назначенная задача | Категория | Статус |
 |---|---|---|---|
-| **05. DevOps** | Инициализировать Git, составить `.gitignore`, доработать `docker-compose.yml` (добавить Postgres 16+, убрать `external: true` для volumes) | B | ⏳ НАЗНАЧЕНО |
-| **01. Architecture** | Сформировать ADR-001: "Worker Topology & Structured Transcript Schema (JSONB vs Table)" | A / Arch | ⏳ НАЗНАЧЕНО |
-| **03. AI Pipeline** | Спроектировать модуль аудио-препроцессинга (ffmpeg extraction + audio chunking) | A / Code | ⏳ В ОЖИДАНИИ ADR-001 |
-| **02. Backend** | Добавить констрейнты уникальности на повторные джобы анализа и подготовить модель для сегментов транскрипта | A / Code | ⏳ В ОЖИДАНИИ ADR-001 |
-| **06. Testing** | Подключить Testcontainers (Postgres, RabbitMQ) в `video-intel-service/pom.xml` | B | ⏳ НАЗНАЧЕНО |
-| **04. Frontend** | Аудит состояния `features/analysis` и подготовка типов под timestamps | B | ⏳ В ОЖИДАНИИ ADR-001 |
-| **07. Product** | Заполнить `AGENT_07_PRODUCT.md` (ICP, Unit-экономика обработки минуты видео) | Product | ⏳ ОЖИДАЕТСЯ ВВОД |
+| **03. AI Pipeline** | Аудио-экстрактор ffmpeg (16kHz mono MP3 64k), Whisper `verbose_json` с сегментами | A / Code | ✅ ВЫПОЛНЕНО |
+| **02. Backend** | Liquibase миграция `segments jsonb`, `TranscriptSegment`, эндпоинт `GET /api/v1/videos/{id}/transcript` | A / Code | ✅ ВЫПОЛНЕНО |
+| **04. Frontend** | Интерактивный `TranscriptViewer` с таймкодами, поиском, автоскроллом и перемоткой плеера | B / Code | ✅ ВЫПОЛНЕНО |
+| **00. Roadmap & Arch** | Синхронизация контрактов Бэк/Фронт (поля `text`/`fullText`, выравнивание доступа) | Arch Review | ✅ ВЫПОЛНЕНО |
+| **05. DevOps** | Подготовить полноценный dev docker-compose (Postgres + RabbitMQ + MinIO) и Dockerfiles | B | ⏳ В ПЛАНЕ |
+| **06. Testing** | Подключить Testcontainers для интеграционных тестов бэкенда | B | ⏳ В ПЛАНЕ |
+| **07. Product** | Заполнить `AGENT_07_PRODUCT.md` (ICP, Unit-экономика) | Product | ⏳ ОЖИДАЕТСЯ |

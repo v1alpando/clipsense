@@ -5,25 +5,27 @@
 - **Стек:** Java 25, Spring Boot 4.x, Spring Data JPA / Hibernate, PostgreSQL, Liquibase, MinIO, RabbitMQ (AMQP/Streams), Redis, Spring Security + JJWT.
 - **Модули сервиса:**
   - `video`: жизненный цикл видео (регистрация, пресайнед ссылки MinIO, стейт-машина загрузки, reconciler зависших аплоадов).
-  - `analysis`: запуск анализа, стейт-машина (`QUEUED` -> `RUNNING` -> `COMPLETED` / `FAILED`), Transactional Outbox, интеграция с воркерами через RabbitMQ, хранение транскриптов.
+  - `analysis`: запуск анализа, стейт-машина (`QUEUED` -> `RUNNING` -> `COMPLETED` / `FAILED`), Transactional Outbox, интеграция с воркерами через RabbitMQ, хранение транскриптов и сегментов таймкодов.
   - `chat`: сессии чата, история сообщений, контекст транскрипта, порты для LLM/AI.
   - `user`: аутентификация/регистрация, анонимные сессии, выпуск и верификация JWT, резолвинг владельцев (Owner Lookup).
-  - `shared`: общая безопасность (SecurityFilter, JWT filter, CORS), базовые доменные и HTTP исключения, модель владения (`Owner`, `OwnerType`).
+  - `shared`: общая безопасность (SecurityFilter, JWT filter, CORS, OwnerExtractor), базовые доменные и HTTP исключения, модель владения (`Owner`, `OwnerType`).
 
 ---
 
-## 2. Текущее состояние кодовой базы (Baseline Audit)
+## 2. Текущее состояние кодовой базы (Baseline Audit & Changelog)
 
-### Архитектура и слои
-- Архитектурный стиль: **Hexagonal / Clean Architecture (Ports & Adapters)** внутри модульного монолита.
-- Модули разделены на слои `domain`, `application`, `infrastructure`, `api`.
-- Доменные модели изолированы: фабричные методы (`request()`, `register()`, `create()`), закрытые конструкторы, метод `reconstruct()`, бизнес-валидация инвариантов.
-- Взаимодействие между модулями реализовано через порты приложения (`VideoLookupPort`, `OwnerLookupPort`, `TranscriptLookupPort`), что предотвращает прямое сцепление JPA-репозиториев между модулями.
-
-### Схема БД и миграции (Liquibase)
-- Модульные чейнджлоги разделены по схемам: `user`, `video`, `analysis`, `chat`.
-- Схемы изолированы в PostgreSQL.
-- Созданы базовые таблицы и индексы, однако отсутствуют критические ограничения уникальности для предотвращения race condition (в частности, на `analysis.analysis_jobs.video_id`).
+### Реализовано в рамках синхронизации контракта транскрипции (2026-10-30):
+1. **Liquibase миграция:** Добавлен changeset `005-add-segments-to-transcripts.yaml`, расширяющий `analysis.transcripts` полем `segments jsonb DEFAULT '[]' NOT NULL`.
+2. **Контракт сообщений и доменная модель:**
+   - `AnalysisResultMessage`: поддержан список `List<TranscriptSegmentDto> segments` (`start`, `end`, `text`).
+   - Domain: `TranscriptSegment` и обновлённый `Transcript` с поддержкой сегментов.
+   - JPA Persistence: `TranscriptEntity` с нативной сериализацией `@JdbcTypeCode(SqlTypes.JSON)`.
+   - `AnalysisResultConsumer`: сохранение сегментов при получении результата из RabbitMQ.
+3. **REST API & Авторизация владельца:**
+   - Реализован эндпоинт `GET /api/v1/videos/{videoId}/transcript` (и алиас `GET /api/videos/{videoId}/transcript`).
+   - DTO: `TranscriptResponse` (`videoId`, `fullText`, `segments: [{start, end, text}]`).
+   - Безопасность: `OwnerExtractor` извлекает `Owner` из JWT (`SecurityContextHolder`) или заголовков/параметров `X-Owner-Id` + `X-Owner-Type`.
+   - Проверка прав: `AnalysisService.getTranscript` сверяет владельца видео через `VideoLookupPort` и бросает `VideoAccessDeniedException` (HTTP 403 Forbidden) при несовпадении.
 
 ---
 
@@ -33,28 +35,24 @@
 
 1. **Критическая ошибка транзакционности в `AnalysisResultConsumer` (Poison Pill / Infinite Requeue):**
    - `@RabbitListener` метод `handle(...)` помечен `@Transactional`.
-   - Внутри вызывается `analysisService.markRunning(jobId)`, который кидает `IllegalAnalysisStateTransitionException` (наследник `RuntimeException`).
-   - Хотя исключение перехватывается блоком `catch`, Spring Transaction Manager уже пометил внешнюю транзакцию как `rollback-only`. При выходе из `handle` выбрасывается `UnexpectedRollbackException`, транзакция откатывается, ack не отправляется, и сообщение бесконечно ретраится RabbitMQ.
-   - Метод `markRunning` выполняется в той же транзакции, поэтому предположение о раздельном коммите неверно.
+   - Вызов `markRunning` кидает `IllegalAnalysisStateTransitionException` при повторной доставке сообщения. Spring помечает транзакцию как `rollback-only`. В блоке `catch` исключение подавляется, но при коммите летит `UnexpectedRollbackException`.
+   - RabbitMQ не получает ack и зацикливает сообщение навсегда.
 
-2. **Race Condition в `AnalysisService.requestAnalysis`:**
-   - Таблица `analysis.analysis_jobs` имеет обычный индекс `idx_analysis_jobs_video_id`, но **не имеет UNIQUE constraint** на `video_id`.
-   - Паттерн `check-then-act` (`findByVideoId` -> `save`) при двух параллельных HTTP-запросах создаст 2 записи в `analysis_jobs` и 2 записи в `outbox_messages`.
+2. **Race Condition в `AnalysisService.requestAnalysis` (Категория A — В ПРОРАБОТКЕ):**
+   - В `analysis.analysis_jobs` отсутствует `UNIQUE` constraint на `video_id`.
+   - Паттерн `check-then-act` допускает параллельный запуск двух воркеров на одно видео.
+   - Подготовлены варианты решения и trade-offs для реализации инженером.
 
 3. **Масштабируемость и надёжность Transactional Outbox (`OutboxRelay`):**
    - Метод `relay()` запускается по таймеру `@Scheduled(fixedDelay = 5s)`.
-   - Запрос `findByProcessedAtIsNull()` не содержит `LIMIT` и `FOR UPDATE SKIP LOCKED`. При горизонтальном масштабировании (2+ реплики сервиса) один и тот же outbox-батч будет дублироваться в RabbitMQ.
+   - Запрос `findByProcessedAtIsNull()` не содержит `LIMIT` и `FOR UPDATE SKIP LOCKED`. При горизонтальном масштабировании (2+ реплики сервиса) один и тот же outbox-батч дублируется в RabbitMQ.
    - Отсутствуют **Publisher Confirms** на `RabbitTemplate`. Сообщение помечается как `processedAt = now()`, даже если брокер сбросил соединение или не сохранил сообщение на диск.
-   - При неизвестном `messageType` выбрасывается исключение, вызывающее бесконечный повтор каждые 5 секунд без DLQ / Dead Letter механизма для outbox.
 
 4. **Отсутствие Optimistic Locking (`@Version`):**
    - Ни в одной сущности (`VideoEntity`, `AnalysisJobEntity`, `ChatSessionEntity`) нет версионирования. Возможны lost updates при параллельных вызовах `getUploadUrl` / `completeUpload` / фонового `StaleUploadReconciler`.
 
 5. **Внешние сетевые вызовы внутри БД-транзакций:**
-   - В `VideoService.completeUpload` и `getUploadUrl` производятся вызовы MinIO (`videoStoragePort.exists`, presigned url generation) внутри транзакции `@Transactional`. Это неоправданно удерживает соединения из пула HikariCP.
-
-6. **Безопасность и авторизация (IDOR):**
-   - `SecurityConfig` содержит `permitAll()` для всех эндпоинтов видео, анализа и чата (отмечено TODO auth retrofit). Клиент может передать чужой `ownerId` или оперировать чужими UUID без проверки контекста аутентификации.
+   - В `VideoService.completeUpload` и `getUploadUrl` производятся вызовы MinIO (`videoStoragePort.exists`, presigned url generation) внутри транзакции `@Transactional`.
 
 ### Категория B: Инфраструктурные оптимизации и улучшения
 1. Оптимизация индекса Outbox: замена полного индекса на partial index PostgreSQL `CREATE INDEX ... WHERE processed_at IS NULL`.
@@ -65,19 +63,8 @@
 
 ## 4. Ожидаемые задачи от Агента 00 (Roadmap & Backlog)
 1. **TASK-BE-01: Fix Consumer Transaction & Idempotency** (Категория A — совместная реализация с разбором транзакций и state machine).
-2. **TASK-BE-02: Fix Race Conditions & Unique Constraints** (Liquibase changeset для `analysis_jobs.video_id` + обработка `DataIntegrityViolationException` / locks).
+2. **TASK-BE-02: Fix Race Conditions & Unique Constraints in Analysis** (Категория A — в процессе совместной реализации).
 3. **TASK-BE-03: Production-Grade Outbox Relay** (`SKIP LOCKED`, пагинация, Publisher Confirms, handling poison pills).
-4. **TASK-BE-04: Auth Retrofit & Principal Ownership Enforcement** (Защита API, проверка прав владельца через JWT SecurityContext, отказ от доверия клиентскому `ownerId`).
+4. **TASK-BE-04: Auth Retrofit & Principal Ownership Enforcement** (Защита API, проверка прав владельца через JWT SecurityContext для всех эндпоинтов).
 5. **TASK-BE-05: Connection Pool & Storage Decoupling** (Вынос MinIO I/O из `@Transactional`).
 6. **TASK-BE-06: Optimistic Locking & State Audit** (`@Version` на доменных агрегатах).
-
----
-
-## 5. Формат взаимодействия с инженером (Human-in-the-Loop)
-- Для задач **Категории A**:
-  1. Формулирую проблему на уровне протоколов, потоков данных, транзакций БД и блокировок.
-  2. Предлагаю архитектурные варианты (trade-offs).
-  3. Передаю реализацию инженеру для прокачки навыков.
-  4. Провожу детальный Code Review с указанием edge-cases и production implications.
-- Для задач **Категории B**:
-  1. Генерирую проверенный boilerplate, конфигурации, DTO, миграции Liquibase с кратким объяснением.

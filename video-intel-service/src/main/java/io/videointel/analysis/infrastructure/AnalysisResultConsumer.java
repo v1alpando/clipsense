@@ -5,11 +5,14 @@ import io.videointel.analysis.domain.AnalysisJob;
 import io.videointel.analysis.domain.IllegalAnalysisStateTransitionException;
 import io.videointel.analysis.domain.Transcript;
 import io.videointel.analysis.domain.TranscriptRepositoryPort;
+import io.videointel.analysis.domain.TranscriptSegment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Slf4j
 @Component
@@ -48,7 +51,12 @@ class AnalysisResultConsumer {
             if (transcriptRepository.findByVideoId(job.videoId()).isPresent()) {
                 log.warn("Transcript for video {} already exists - skipping duplicate insert", job.videoId());
             } else {
-                transcriptRepository.save(Transcript.create(job.videoId(), message.transcriptText()));
+                List<TranscriptSegment> segments = message.segments() == null
+                        ? List.of()
+                        : message.segments().stream()
+                                .map(s -> new TranscriptSegment(s.start(), s.end(), s.text()))
+                                .toList();
+                transcriptRepository.save(Transcript.create(job.videoId(), message.transcriptText(), segments));
             }
             analysisService.markCompleted(message.jobId());
         } else {

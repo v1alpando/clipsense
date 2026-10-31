@@ -5,8 +5,13 @@ import io.videointel.analysis.domain.AnalysisJobNotFoundException;
 import io.videointel.analysis.domain.AnalysisJobRepositoryPort;
 import io.videointel.analysis.domain.AnalysisRequestedMessage;
 import io.videointel.analysis.domain.OutboxRepositoryPort;
+import io.videointel.analysis.domain.Transcript;
+import io.videointel.analysis.domain.TranscriptNotFoundException;
+import io.videointel.analysis.domain.TranscriptRepositoryPort;
 import io.videointel.analysis.domain.UnknownVideoException;
+import io.videointel.analysis.domain.VideoAccessDeniedException;
 import io.videointel.analysis.domain.VideoNotReadyException;
+import io.videointel.shared.ownership.Owner;
 import io.videointel.video.application.VideoLookupPort;
 import io.videointel.video.application.VideoView;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,7 @@ import java.util.UUID;
 public class AnalysisService {
 
     private final AnalysisJobRepositoryPort analysisJobRepository;
+    private final TranscriptRepositoryPort transcriptRepository;
     private final VideoLookupPort videoLookupPort;
     private final OutboxRepositoryPort outboxRepository;
 
@@ -54,6 +60,19 @@ public class AnalysisService {
     @Transactional(readOnly = true)
     public AnalysisJob getJob(UUID id) {
         return analysisJobRepository.findById(id).orElseThrow(() -> new AnalysisJobNotFoundException(id));
+    }
+
+    @Transactional(readOnly = true)
+    public Transcript getTranscript(UUID videoId, Owner requester) {
+        VideoView videoView = videoLookupPort.findById(videoId)
+                .orElseThrow(() -> new UnknownVideoException(videoId));
+
+        if (requester != null && videoView.owner() != null && !videoView.owner().equals(requester)) {
+            throw new VideoAccessDeniedException(videoId);
+        }
+
+        return transcriptRepository.findByVideoId(videoId)
+                .orElseThrow(() -> new TranscriptNotFoundException(videoId));
     }
 
     @Transactional

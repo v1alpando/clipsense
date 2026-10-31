@@ -1,19 +1,62 @@
+import logging
+import os
+from pathlib import Path
+from typing import Any
+
 from openai import OpenAI
 
 from app import config
 
+log = logging.getLogger(__name__)
+
+MAX_PAYLOAD_BYTES = 25 * 1024 * 1024  # 25 MB OpenAI Whisper limit
 _client = OpenAI(api_key=config.OPENAI_API_KEY)
 
 
-def transcribe(video_path: str) -> str:
-    # The endpoint reads mp4/mov/webm/etc. directly - it just pulls the audio track out
-    # itself, so no ffmpeg step needed on our side for now. It does cap uploads at 25MB
-    # though, so anything longer than a few minutes of video will need splitting or
-    # re-encoding to audio-only before this call - not handled yet, first get one short
-    # test video working end to end.
-    with open(video_path, "rb") as video_file:
+class AudioPayloadTooLargeError(Exception):
+    """Raised when extracted audio still exceeds the 25MB OpenAI limit."""
+
+
+def transcribe(audio_path: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Transcribe an audio file using OpenAI Whisper API with verbose JSON response.
+
+    Returns:
+        tuple of (full_transcript_text, segments_list)
+        where segments_list contains dicts: {"start": float, "end": float, "text": str}
+    """
+    file_size = os.path.getsize(audio_path)
+    if file_size > MAX_PAYLOAD_BYTES:
+        raise AudioPayloadTooLargeError(
+            f"Audio file size ({file_size / (1024 * 1024):.2f} MB) exceeds "
+            f"OpenAI 25MB limit. Chunking or bitrate reduction is required."
+        )
+
+    log.info("Sending %s (%.2f MB) to OpenAI Whisper API", audio_path.name, file_size / (1024 * 1024))
+
+    with open(audio_path, "rb") as audio_file:
         response = _client.audio.transcriptions.create(
             model="whisper-1",
-            file=video_file,
+            file=audio_file,
+            response_format="verbose_json",
+            timestamp_granularities=["segment"],
         )
-    return response.text
+
+    full_text = getattr(response, "text", "") or ""
+
+    raw_segments = getattr(response, "segments", []) or []
+    segments = []
+    for s in raw_segments:
+        if isinstance(s, dict):
+            segments.append({
+                "start": float(s.get("start", 0.0)),
+                "end": float(s.get("end", 0.0)),
+                "text": str(s.get("text", "")).strip(),
+            })
+        else:
+            segments.append({
+                "start": float(getattr(s, "start", 0.0)),
+                "end": float(getattr(s, "end", 0.0)),
+                "text": str(getattr(s, "text", "")).strip(),
+            })
+
+    return full_text, segments

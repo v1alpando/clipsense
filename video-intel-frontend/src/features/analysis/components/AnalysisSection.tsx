@@ -1,63 +1,85 @@
 import { Loader2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useAnalysis } from '../hooks/useAnalysis';
+import { TranscriptViewer } from './TranscriptViewer';
 
 interface AnalysisSectionProps {
   videoId: string;
   enabled: boolean;
+  currentTime?: number;
+  onSeek?: (time: number) => void;
 }
 
 const JOB_STATUS_LABEL = {
   QUEUED: 'Queued for analysis...',
-  RUNNING: 'Analyzing video...',
+  RUNNING: 'Analyzing video & generating transcript...',
 } as const;
 
-export function AnalysisSection({ videoId, enabled }: AnalysisSectionProps) {
+export function AnalysisSection({
+  videoId,
+  enabled,
+  currentTime,
+  onSeek,
+}: AnalysisSectionProps) {
   const { state } = useAnalysis(videoId, enabled);
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Analysis</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+        <CardTitle className="text-lg font-semibold">Transcript & Analysis</CardTitle>
+        {enabled && state.status === 'ready' && state.job.status === 'COMPLETED' && (
+          <Badge variant="secondary" className="text-xs">
+            Completed
+          </Badge>
+        )}
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        {!enabled && 'Analysis will start once the video finishes uploading.'}
+      <CardContent className="text-sm">
+        {!enabled && (
+          <p className="text-muted-foreground">
+            Analysis will start once the video finishes uploading.
+          </p>
+        )}
 
         {enabled && (state.status === 'idle' || state.status === 'loading') && (
-          <span className="flex items-center gap-2">
-            <Loader2 className="size-4 animate-spin" />
-            Starting analysis...
-          </span>
+          <div className="flex items-center gap-2 text-muted-foreground py-4">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Starting analysis...</span>
+          </div>
         )}
 
         {enabled && state.status === 'error' && (
-          <span className="flex items-center gap-2 text-destructive">
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-destructive">
             <XCircle className="size-4 shrink-0" />
-            {state.message}
-          </span>
+            <span>{state.message}</span>
+          </div>
         )}
 
         {enabled && state.status === 'ready' && state.job.status === 'FAILED' && (
-          <span className="flex items-center gap-2 text-destructive">
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-destructive">
             <XCircle className="size-4 shrink-0" />
-            {state.job.failureReason ?? 'Analysis failed.'}
-          </span>
-        )}
-
-        {enabled && state.status === 'ready' && state.job.status === 'COMPLETED' && (
-          // No backend endpoint exposes transcript/summary/key-moments/etc.
-          // yet — real sections replace this once that content exists.
-          <span>Analysis complete. Detailed results aren&apos;t available from the backend yet.</span>
+            <span>{state.job.failureReason ?? 'Analysis failed.'}</span>
+          </div>
         )}
 
         {enabled &&
           state.status === 'ready' &&
           (state.job.status === 'QUEUED' || state.job.status === 'RUNNING') && (
-            <span className="flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin" />
-              {JOB_STATUS_LABEL[state.job.status]}
-            </span>
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <span>{JOB_STATUS_LABEL[state.job.status]}</span>
+            </div>
           )}
+
+        {enabled && state.status === 'ready' && state.job.status === 'COMPLETED' && (
+          <div className="pt-1">
+            <TranscriptViewer
+              videoId={videoId}
+              currentTime={currentTime}
+              onSeek={onSeek}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState } from 'react';
 import { Loader2, XCircle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { AnalysisSection } from '@/features/analysis/components/AnalysisSection';
@@ -18,6 +19,18 @@ export function VideoPage() {
     videoId!,
     state.status === 'success' && state.video.status === 'UPLOADED',
   );
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const handleSeek = useCallback((seconds: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play().catch(() => {
+        // Autoplay may be blocked by browser policy until user interaction
+      });
+    }
+  }, []);
 
   if (state.status === 'loading') {
     return (
@@ -51,7 +64,11 @@ export function VideoPage() {
         </div>
       </div>
 
-      <VideoPlayer src={playbackUrlState.status === 'ready' ? playbackUrlState.url : null} />
+      <VideoPlayer
+        videoRef={videoRef}
+        src={playbackUrlState.status === 'ready' ? playbackUrlState.url : null}
+        onTimeUpdate={setCurrentTime}
+      />
 
       {video.status === 'FAILED' && video.failedReason && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm">
@@ -67,7 +84,13 @@ export function VideoPage() {
         <dd>{formatDateTime(video.updatedAt)}</dd>
       </dl>
 
-      <AnalysisSection videoId={video.id} enabled={video.status === 'UPLOADED'} />
+      <AnalysisSection
+        videoId={video.id}
+        enabled={video.status === 'UPLOADED'}
+        currentTime={currentTime}
+        onSeek={handleSeek}
+      />
+
       <ChatSection videoId={video.id} enabled={video.status === 'UPLOADED'} />
     </div>
   );

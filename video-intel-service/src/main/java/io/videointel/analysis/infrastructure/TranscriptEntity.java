@@ -10,9 +10,12 @@ import jakarta.persistence.Transient;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -30,16 +33,21 @@ class TranscriptEntity implements Persistable<UUID> {
     @Column(nullable = false, columnDefinition = "text")
     private String text;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "segments", columnDefinition = "jsonb")
+    private List<SegmentRecord> segments;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Transient
     private boolean isNew = true;
 
-    TranscriptEntity(UUID id, UUID videoId, String text, Instant createdAt) {
+    TranscriptEntity(UUID id, UUID videoId, String text, List<SegmentRecord> segments, Instant createdAt) {
         this.id = id;
         this.videoId = videoId;
         this.text = text;
+        this.segments = segments;
         this.createdAt = createdAt;
     }
 
@@ -47,5 +55,8 @@ class TranscriptEntity implements Persistable<UUID> {
     @PostPersist
     void markNotNew() {
         this.isNew = false;
+    }
+
+    record SegmentRecord(double start, double end, String text) {
     }
 }

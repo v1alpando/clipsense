@@ -1,6 +1,7 @@
 package io.videointel.shared.web;
 
 import io.videointel.shared.exception.DomainRuleViolationException;
+import io.videointel.shared.exception.ForbiddenException;
 import io.videointel.shared.exception.NotFoundException;
 import io.videointel.shared.exception.UnauthorizedException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +31,11 @@ class GlobalExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<ErrorResponse> handleUnauthorized(UnauthorizedException ex, HttpServletRequest request) {
         return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    ResponseEntity<ErrorResponse> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

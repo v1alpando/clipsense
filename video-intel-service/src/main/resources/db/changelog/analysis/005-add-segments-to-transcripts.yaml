@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-add-segments-to-transcripts
+      author: arman
+      changes:
+        - addColumn:
+            schemaName: analysis
+            tableName: transcripts
+            columns:
+              - column:
+                  name: segments
+                  type: jsonb
+                  defaultValue: '[]'
+                  constraints:
+                    nullable: false
