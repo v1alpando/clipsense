@@ -15,6 +15,9 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "videointel123")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "videos")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
+# Transcription provider strategy: "local" (faster-whisper, $0) or "openai" (OpenAI Whisper API)
+TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "local").lower()
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Same queue names as RabbitMqConfig.java in video-intel-service - this worker and the

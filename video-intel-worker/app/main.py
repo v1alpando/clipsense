@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from app import audio, minio_client, transcription
+from app import audio, config, minio_client, transcription
 from app.models import AnalysisRequestedMessage, AnalysisResultMessage
 from app.queue_client import run_consumer
 
@@ -36,7 +36,7 @@ def handle_analysis_requested(message: AnalysisRequestedMessage) -> AnalysisResu
             log.info("Extracting lightweight MP3 audio from %s", video_path)
             audio.extract_audio(video_path, audio_path)
 
-            log.info("Transcribing audio %s with OpenAI Whisper", audio_path)
+            log.info("Transcribing audio %s (provider=%s)", audio_path, config.TRANSCRIPTION_PROVIDER)
             transcript_text, segments = transcription.transcribe(audio_path)
 
             return AnalysisResultMessage(

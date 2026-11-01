@@ -28,3 +28,25 @@ export function formatTimestamp(
 
   return options.brackets ? `[${formatted}]` : formatted;
 }
+
+/**
+ * Formats a segment duration in seconds into a friendly string.
+ * Examples:
+ *   formatDuration(4.5) => "4.5s"
+ *   formatDuration(12) => "12s"
+ *   formatDuration(84) => "1m 24s"
+ */
+export function formatDuration(seconds: number): string {
+  if (typeof seconds !== 'number' || isNaN(seconds) || seconds <= 0) {
+    return '0s';
+  }
+
+  if (seconds < 60) {
+    const rounded = Math.round(seconds * 10) / 10;
+    return `${rounded}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+}

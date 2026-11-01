@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  Clock,
   Copy,
   FileText,
   Loader2,
+  MessageSquare,
   RefreshCw,
   Search,
   Volume2,
   X,
   XCircle,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatTimestamp } from '@/lib/formatTime';
+import { formatDuration, formatTimestamp } from '@/lib/formatTime';
 import { useTranscript } from '../hooks/useTranscript';
 import type { TranscriptResponse, TranscriptSegment } from '../types/transcript';
 
@@ -38,7 +41,7 @@ export function TranscriptViewer({
   onSeek,
   className = '',
 }: TranscriptViewerProps) {
-  // If videoId is provided and no direct transcript/segments were passed, use hook
+  // If videoId is provided and no direct transcript/segments were passed, use hook with auto-retry
   const { state: hookState, refetch } = useTranscript(
     videoId ?? '',
     Boolean(videoId && !directTranscript && !directSegments),
@@ -50,11 +53,20 @@ export function TranscriptViewer({
   const activeSegmentRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const resolvedTranscript = directTranscript ?? (hookState.status === 'ready' ? hookState.transcript : null);
+  const resolvedTranscript =
+    directTranscript ?? (hookState.status === 'ready' ? hookState.transcript : null);
 
   const segments = useMemo(() => {
     return directSegments ?? resolvedTranscript?.segments ?? [];
   }, [directSegments, resolvedTranscript]);
+
+  // Aggregate stats: total speech duration and total phrases
+  const totalSpeechDuration = useMemo(() => {
+    return segments.reduce(
+      (acc, seg) => acc + Math.max(0, seg.end - seg.start),
+      0,
+    );
+  }, [segments]);
 
   // Determine active segment index based on current playback time
   const activeIndex = useMemo(() => {
@@ -83,12 +95,11 @@ export function TranscriptViewer({
   }, [activeIndex, autoScroll, searchQuery]);
 
   const handleCopy = useCallback(async () => {
-    if (!resolvedTranscript) return;
+    if (!resolvedTranscript && segments.length === 0) return;
     try {
       const fullText =
-        resolvedTranscript.text ||
-        resolvedTranscript.fullText ||
-        resolvedTranscript.segments
+        resolvedTranscript?.text ||
+        segments
           .map(
             (seg) =>
               `${formatTimestamp(seg.start, { brackets: true })} ${seg.text}`,
@@ -101,7 +112,7 @@ export function TranscriptViewer({
     } catch {
       // Clipboard write failed (permissions/unfocused)
     }
-  }, [resolvedTranscript]);
+  }, [resolvedTranscript, segments]);
 
   const handleSegmentClick = useCallback(
     (startSeconds: number) => {
@@ -111,7 +122,7 @@ export function TranscriptViewer({
   );
 
   // If loading from hook
-  if (!directTranscript && hookState.status === 'loading') {
+  if (!directTranscript && !directSegments && hookState.status === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center text-sm text-muted-foreground">
         <Loader2 className="size-6 animate-spin text-primary" />
@@ -121,7 +132,7 @@ export function TranscriptViewer({
   }
 
   // If error from hook
-  if (!directTranscript && hookState.status === 'error') {
+  if (!directTranscript && !directSegments && hookState.status === 'error') {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center text-sm">
         <div className="flex items-center gap-2 text-destructive font-medium">
@@ -137,7 +148,7 @@ export function TranscriptViewer({
     );
   }
 
-  if (!resolvedTranscript || segments.length === 0) {
+  if (segments.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
         <FileText className="size-7 opacity-40" />
@@ -205,21 +216,42 @@ export function TranscriptViewer({
         </div>
       </div>
 
-      {/* Search results summary */}
-      {searchQuery.trim() && (
-        <div className="text-xs text-muted-foreground">
-          Found {filteredSegments.length} of {segments.length} segments
+      {/* Meta Stats bar: total phrases, filtered phrases, speech duration */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 font-medium text-foreground">
+            <MessageSquare className="size-3.5 text-muted-foreground" />
+            {searchQuery.trim() ? (
+              <span>
+                Found <span className="font-semibold text-primary">{filteredSegments.length}</span> of {segments.length} phrases
+              </span>
+            ) : (
+              <span>{segments.length} phrases</span>
+            )}
+          </span>
+          {searchQuery.trim() && (
+            <Badge variant="secondary" className="h-5 px-1.5 text-[11px] font-normal">
+              Filtered
+            </Badge>
+          )}
         </div>
-      )}
+
+        {totalSpeechDuration > 0 && (
+          <div className="inline-flex items-center gap-1 text-muted-foreground">
+            <Clock className="size-3.5" />
+            <span>Speech: {formatDuration(totalSpeechDuration)}</span>
+          </div>
+        )}
+      </div>
 
       {/* Segments scrollable list */}
       <div
         ref={scrollContainerRef}
-        className="flex max-h-[420px] flex-col divide-y divide-border/50 overflow-y-auto rounded-lg border bg-card text-card-foreground shadow-sm"
+        className="flex max-h-[440px] flex-col divide-y divide-border/50 overflow-y-auto rounded-lg border bg-card text-card-foreground shadow-sm"
       >
         {filteredSegments.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
-            No segments found matching &ldquo;{searchQuery}&rdquo;
+            No phrases found matching &ldquo;{searchQuery}&rdquo;
           </div>
         ) : (
           filteredSegments.map((segment) => {
@@ -227,6 +259,7 @@ export function TranscriptViewer({
               currentTime >= segment.start && currentTime < segment.end;
             const originalIndex = segments.indexOf(segment);
             const isCurrentActive = originalIndex === activeIndex;
+            const segmentDuration = Math.max(0, segment.end - segment.start);
 
             return (
               <div
@@ -239,23 +272,34 @@ export function TranscriptViewer({
                     : 'border-l-4 border-l-transparent hover:bg-muted/50'
                 }`}
               >
-                {/* Timestamp Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSegmentClick(segment.start);
-                  }}
-                  className={`inline-flex items-center gap-1 shrink-0 rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
-                    isPlaying
-                      ? 'bg-primary text-primary-foreground font-semibold'
-                      : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
-                  }`}
-                  title={`Jump to ${formatTimestamp(segment.start)}`}
-                >
-                  {isPlaying && <Volume2 className="size-3 animate-pulse" />}
-                  {formatTimestamp(segment.start, { brackets: true })}
-                </button>
+                {/* Timestamp Button & Duration Badge */}
+                <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSegmentClick(segment.start);
+                    }}
+                    className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs transition-colors ${
+                      isPlaying
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
+                    }`}
+                    title={`Jump video to ${formatTimestamp(segment.start)}`}
+                    aria-label={`Jump to ${formatTimestamp(segment.start)}`}
+                  >
+                    {isPlaying && <Volume2 className="size-3 animate-pulse" />}
+                    {formatTimestamp(segment.start, { brackets: true })}
+                  </button>
+
+                  {/* Segment Duration Badge */}
+                  <span
+                    className="font-mono text-[11px] text-muted-foreground/70"
+                    title={`Duration: ${segmentDuration.toFixed(2)}s`}
+                  >
+                    {formatDuration(segmentDuration)}
+                  </span>
+                </div>
 
                 {/* Segment Text with search highlighting */}
                 <div className="flex-1 leading-relaxed">
