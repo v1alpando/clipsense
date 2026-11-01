@@ -5,7 +5,7 @@
 - **Стек:** Java 25, Spring Boot 4.x, Spring Data JPA / Hibernate, PostgreSQL, Liquibase, MinIO, RabbitMQ (AMQP/Streams), Redis, Spring Security + JJWT.
 - **Модули сервиса:**
   - `video`: жизненный цикл видео (регистрация, пресайнед ссылки MinIO, стейт-машина загрузки, reconciler зависших аплоадов).
-  - `analysis`: запуск анализа, стейт-машина (`QUEUED` -> `RUNNING` -> `COMPLETED` / `FAILED`), Transactional Outbox, интеграция с воркерами через RabbitMQ, хранение транскриптов и сегментов таймкодов.
+  - `analysis`: запуск анализа, стейт-машина (`QUEUED` -> `RUNNING` -> `COMPLETED` / `FAILED`), Transactional Outbox, интеграция с воркерами через RabbitMQ, хранение транскриптов, сегментов таймкодов и глубокого AI-анализа (`summary`, `hook`, `key_moments`, `takeaways`).
   - `chat`: сессии чата, история сообщений, контекст транскрипта, порты для LLM/AI.
   - `user`: аутентификация/регистрация, анонимные сессии, выпуск и верификация JWT, резолвинг владельцев (Owner Lookup).
   - `shared`: общая безопасность (SecurityFilter, JWT filter, CORS, OwnerExtractor), базовые доменные и HTTP исключения, модель владения (`Owner`, `OwnerType`).
@@ -14,18 +14,27 @@
 
 ## 2. Текущее состояние кодовой базы (Baseline Audit & Changelog)
 
-### Реализовано в рамках синхронизации контракта транскрипции (2026-10-30):
-1. **Liquibase миграция:** Добавлен changeset `005-add-segments-to-transcripts.yaml`, расширяющий `analysis.transcripts` полем `segments jsonb DEFAULT '[]' NOT NULL`.
+### Реализовано в рамках сохранения и отдачи глубокого AI-анализа видео (2026-11-01):
+1. **Liquibase миграция:**
+   - Добавлен changeset `006-add-analysis-data-to-transcripts.yaml`, расширяющий `analysis.transcripts` полем `analysis_data jsonb`.
 2. **Контракт сообщений и доменная модель:**
-   - `AnalysisResultMessage`: поддержан список `List<TranscriptSegmentDto> segments` (`start`, `end`, `text`).
-   - Domain: `TranscriptSegment` и обновлённый `Transcript` с поддержкой сегментов.
+   - `AnalysisResultMessage`: поддержан типизированный `AnalysisPayloadDto` с вложенными `HookDto`, `KeyMomentDto` (поддержка `@JsonProperty("key_moments")` и `@JsonAlias("keyMoments")`) и `takeaways`.
+   - Domain Value Objects: `Hook` (`score`, `type`, `critique`, `suggestion`), `KeyMoment` (`timestamp`, `title`, `description`), `VideoAnalysisData` (`summary`, `hook`, `keyMoments`, `takeaways`).
+   - `Transcript`: расширен полем `VideoAnalysisData analysisData` (с сохранением 100% обратной совместимости через конструкторы и перегрузки `create`/`reconstruct`).
    - JPA Persistence: `TranscriptEntity` с нативной сериализацией `@JdbcTypeCode(SqlTypes.JSON)`.
-   - `AnalysisResultConsumer`: сохранение сегментов при получении результата из RabbitMQ.
+   - `AnalysisResultConsumer`: маппинг и атомарное сохранение `VideoAnalysisData` в транскрипт при успехе джобы.
 3. **REST API & Авторизация владельца:**
-   - Реализован эндпоинт `GET /api/v1/videos/{videoId}/transcript` (и алиас `GET /api/videos/{videoId}/transcript`).
-   - DTO: `TranscriptResponse` (`videoId`, `fullText`, `segments: [{start, end, text}]`).
-   - Безопасность: `OwnerExtractor` извлекает `Owner` из JWT (`SecurityContextHolder`) или заголовков/параметров `X-Owner-Id` + `X-Owner-Type`.
-   - Проверка прав: `AnalysisService.getTranscript` сверяет владельца видео через `VideoLookupPort` и бросает `VideoAccessDeniedException` (HTTP 403 Forbidden) при несовпадении.
+   - `TranscriptResponse`: расширен объектом `analysis` (`summary`, `hook`, `keyMoments`, `takeaways`) и геттером `text()` для зеркалирования `fullText` (совместимость с фронтендом).
+   - Эндпоинты:
+     * `GET /api/v1/videos/{videoId}/transcript` (и алиас `/api/videos/{videoId}/transcript`) возвращает полный транскрипт вместе со структурированным анализом.
+     * `GET /api/v1/videos/{videoId}/analysis-data` (и алиас `/api/videos/{videoId}/analysis-data`) возвращает только объект анализа `AnalysisResponse`.
+   - Безопасность: оба эндпоинта защищены проверкой `Owner check` через `OwnerExtractor` (JWT Bearer или `X-Owner-Id` + `X-Owner-Type`). При несовпадении владельца возвращается HTTP 403 Forbidden.
+4. **Тестирование:**
+   - Модульные тесты `TranscriptTest` и `AnalysisServiceTest` расширены проверками валидации, маппинга и авторизации данных анализа (29 тестов зелёные).
+
+### Ранее реализовано (2026-10-30):
+1. **Liquibase миграция:** Changeset `005-add-segments-to-transcripts.yaml` (`segments jsonb DEFAULT '[]' NOT NULL`).
+2. **Стейт сегментов:** `TranscriptSegment`, маппинг в `TranscriptEntity` и `AnalysisResultConsumer`.
 
 ---
 
@@ -38,10 +47,10 @@
    - Вызов `markRunning` кидает `IllegalAnalysisStateTransitionException` при повторной доставке сообщения. Spring помечает транзакцию как `rollback-only`. В блоке `catch` исключение подавляется, но при коммите летит `UnexpectedRollbackException`.
    - RabbitMQ не получает ack и зацикливает сообщение навсегда.
 
-2. **Race Condition в `AnalysisService.requestAnalysis` (Категория A — В ПРОРАБОТКЕ):**
+2. **Race Condition в `AnalysisService.requestAnalysis`:**
    - В `analysis.analysis_jobs` отсутствует `UNIQUE` constraint на `video_id`.
    - Паттерн `check-then-act` допускает параллельный запуск двух воркеров на одно видео.
-   - Подготовлены варианты решения и trade-offs для реализации инженером.
+   - Рекомендуемое решение: Partial Unique Index в PostgreSQL (`WHERE status IN ('QUEUED', 'RUNNING')`).
 
 3. **Масштабируемость и надёжность Transactional Outbox (`OutboxRelay`):**
    - Метод `relay()` запускается по таймеру `@Scheduled(fixedDelay = 5s)`.
@@ -62,8 +71,8 @@
 ---
 
 ## 4. Ожидаемые задачи от Агента 00 (Roadmap & Backlog)
-1. **TASK-BE-01: Fix Consumer Transaction & Idempotency** (Категория A — совместная реализация с разбором транзакций и state machine).
-2. **TASK-BE-02: Fix Race Conditions & Unique Constraints in Analysis** (Категория A — в процессе совместной реализации).
+1. **TASK-BE-01: Fix Consumer Transaction & Idempotency** (Категория A).
+2. **TASK-BE-02: Fix Race Conditions & Unique Constraints in Analysis** (Категория A).
 3. **TASK-BE-03: Production-Grade Outbox Relay** (`SKIP LOCKED`, пагинация, Publisher Confirms, handling poison pills).
 4. **TASK-BE-04: Auth Retrofit & Principal Ownership Enforcement** (Защита API, проверка прав владельца через JWT SecurityContext для всех эндпоинтов).
 5. **TASK-BE-05: Connection Pool & Storage Decoupling** (Вынос MinIO I/O из `@Transactional`).

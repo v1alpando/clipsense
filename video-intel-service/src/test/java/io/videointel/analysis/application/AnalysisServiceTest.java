@@ -1,6 +1,9 @@
 package io.videointel.analysis.application;
 
+import io.videointel.analysis.domain.AnalysisDataNotFoundException;
 import io.videointel.analysis.domain.AnalysisJobRepositoryPort;
+import io.videointel.analysis.domain.Hook;
+import io.videointel.analysis.domain.KeyMoment;
 import io.videointel.analysis.domain.OutboxRepositoryPort;
 import io.videointel.analysis.domain.Transcript;
 import io.videointel.analysis.domain.TranscriptNotFoundException;
@@ -8,6 +11,7 @@ import io.videointel.analysis.domain.TranscriptRepositoryPort;
 import io.videointel.analysis.domain.TranscriptSegment;
 import io.videointel.analysis.domain.UnknownVideoException;
 import io.videointel.analysis.domain.VideoAccessDeniedException;
+import io.videointel.analysis.domain.VideoAnalysisData;
 import io.videointel.shared.ownership.Owner;
 import io.videointel.video.application.VideoLookupPort;
 import io.videointel.video.application.VideoView;
@@ -109,21 +113,51 @@ class AnalysisServiceTest {
     }
 
     @Test
-    void getTranscript_nullRequesterAllowedForPlayback_returnsTranscript() {
+    void getAnalysisData_analysisDataPresent_returnsData() {
         UUID videoId = UUID.randomUUID();
         Owner owner = new Owner.RegisteredUser(UUID.randomUUID());
-        Transcript transcript = Transcript.create(videoId, "Sample text", List.of(
-                new TranscriptSegment(0.0, 2.0, "Sample text")
-        ));
+        VideoAnalysisData analysisData = new VideoAnalysisData(
+                "Great video",
+                new Hook(95, "CURIOSITY", "Excellent", "None"),
+                List.of(new KeyMoment(10.0, "Climax", "Big reveal")),
+                List.of("Insight 1")
+        );
+        Transcript transcript = Transcript.create(
+                videoId, "Sample text",
+                List.of(new TranscriptSegment(0.0, 2.0, "Sample text")),
+                analysisData
+        );
 
         when(videoLookupPort.findById(videoId)).thenReturn(Optional.of(
                 new VideoView(videoId, true, "storage-ref", owner)
         ));
         when(transcriptRepository.findByVideoId(videoId)).thenReturn(Optional.of(transcript));
 
-        Transcript result = analysisService.getTranscript(videoId, null);
+        VideoAnalysisData result = analysisService.getAnalysisData(videoId, owner);
 
         assertThat(result).isNotNull();
-        assertThat(result.text()).isEqualTo("Sample text");
+        assertThat(result.summary()).isEqualTo("Great video");
+        assertThat(result.hook().score()).isEqualTo(95);
+        assertThat(result.keyMoments()).hasSize(1);
+        assertThat(result.takeaways()).containsExactly("Insight 1");
+    }
+
+    @Test
+    void getAnalysisData_analysisDataNull_throwsNotFound() {
+        UUID videoId = UUID.randomUUID();
+        Owner owner = new Owner.RegisteredUser(UUID.randomUUID());
+        Transcript transcript = Transcript.create(
+                videoId, "Sample text",
+                List.of(new TranscriptSegment(0.0, 2.0, "Sample text")),
+                null
+        );
+
+        when(videoLookupPort.findById(videoId)).thenReturn(Optional.of(
+                new VideoView(videoId, true, "storage-ref", owner)
+        ));
+        when(transcriptRepository.findByVideoId(videoId)).thenReturn(Optional.of(transcript));
+
+        assertThatThrownBy(() -> analysisService.getAnalysisData(videoId, owner))
+                .isInstanceOf(AnalysisDataNotFoundException.class);
     }
 }

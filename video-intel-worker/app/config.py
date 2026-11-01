@@ -20,6 +20,10 @@ TRANSCRIPTION_PROVIDER = os.getenv("TRANSCRIPTION_PROVIDER", "local").lower()
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Deep AI Analysis configuration (Gemini 3.8 Flash via google-genai SDK, OpenAI fallback, or deterministic local)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "gemini-3.8-flash")
+
 # Same queue names as RabbitMqConfig.java in video-intel-service - this worker and the
 # backend must always agree on these literally, so if you ever rename one, rename both.
 ANALYSIS_REQUESTED_QUEUE = "analysis.requested"

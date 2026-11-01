@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 
@@ -28,6 +28,7 @@ class AnalysisResultMessage:
     transcript_text: Optional[str] = None
     failure_reason: Optional[str] = None
     segments: Optional[list[dict[str, Any]]] = None
+    analysis: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -38,4 +39,6 @@ class AnalysisResultMessage:
         }
         if self.segments is not None:
             data["segments"] = self.segments
+        if self.analysis is not None:
+            data["analysis"] = self.analysis
         return data

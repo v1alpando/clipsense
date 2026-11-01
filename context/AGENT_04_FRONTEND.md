@@ -5,7 +5,7 @@
 **Стек:** React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui, Radix UI, Lucide React, React Router 7  
 **Архитектура:** Feature-Based Architecture (Screaming Architecture / Feature Folders)  
 **Дата ревизии:** 2026-11-01  
-**Статус:** READY FOR END-TO-END MANUAL TESTING
+**Статус:** AI VIDEO INTELLIGENCE STUDIO DEPLOYED
 
 ---
 
@@ -16,6 +16,7 @@
 - **API Contracts & Type Safety:** Синхронизация TypeScript-контрактов с DTO Spring Boot сервиса (`video-intel-service`), строгая валидация схем ответов/запросов, обработка доменных ошибок бэкенда.
 - **Interactive Multimedia & AI UX:** 
   - Видеоплеер с двунаправленной синхронизацией по таймкодам (`videoRef`, `currentTime`, `onSeek`).
+  - **AI Video Intelligence Studio:** Оценка удержания и критика хука (`HookAnalysisCard`), интерактивные главы видео с YouTube-style таймкодами (`KeyMomentsList`), выжимка и ключевые тезисы (`ExecutiveSummaryCard`).
   - Transcript Viewer (интерактивный просмотр транскрипции, полнотекстовый поиск с подсветкой, переход к таймкоду по клику, автоскролл за таймлайном воспроизведения, метаданные фраз и длительностей).
   - Streaming AI Chat Interface (поддержка SSE/Streamed responses, цитирование фрагментов видео с кликабельными таймкодами).
   - Resilient Video Upload (direct-to-storage upload, отслеживание прогресса, обработка прерываний).
@@ -24,23 +25,23 @@
 
 ---
 
-## 2. Baseline Audit & Недавно реализованный функционал
+## 2. Baseline Audit & Реализованный функционал
 
 ### 2.1. Структура проекта
 Репозиторий `video-intel-frontend` организован по фиче-ориентированной структуре:
 ```
 src/
 ├── app/                  # Инициализация приложения, роутер, глобальный Layout
-├── components/ui/        # Базовые UI-примитивы (shadcn/ui на базе Radix UI)
+├── components/ui/        # Базовые UI-примитивы (shadcn/ui на базе Radix UI, Tabs, Badge, Card, etc.)
 ├── features/
 │   ├── user/             # Управление сессиями и идентификацией владельца (Owner)
 │   ├── video/            # Загрузка, получение метаданных, воспроизведение видео (VideoPlayer ref/sync)
-│   ├── analysis/         # Задачи анализа, типы транскрипта, TranscriptViewer, useTranscript
+│   ├── analysis/         # HookAnalysisCard, KeyMomentsList, ExecutiveSummaryCard, TranscriptViewer
 │   └── chat/             # Сессии диалога с AI по содержанию видео
 ├── lib/                  # Утилиты (apiClient, env, formatDateTime, formatTime, utils)
 └── pages/
     ├── HomePage/         # Стартовая точка с интерфейсом загрузки видео
-    └── VideoPage/        # Страница анализа видео с интерактивным плеером и транскриптом
+    └── VideoPage/        # Студия анализа видео: плеер + AI Insights Tabs + чат
 ```
 
 ### 2.2. Реализованный функционал
@@ -48,18 +49,31 @@ src/
 2. **Direct Upload Flow:** Создание сущности видео в сервисе -> получение presigned URL (MinIO/S3) -> загрузка бинарных данных через XHR с прогресс-баром -> нотификация завершения (`POST /complete`).
 3. **Polling & Video Playback:** Опрос статуса обработки видео через `useVideo`, получение временного presigned playback URL через `usePlaybackUrl`, воспроизведение через `VideoPlayer`.
 4. **Analysis Triggering & Auto-Polling:** Запуск задачи анализа (FULL, TRANSCRIPTION, VISUAL) и поллинг состояния задачи (`PENDING` -> `PROCESSING` -> `COMPLETED`/`FAILED`).
-5. **Interactive Transcript Viewer & VideoPlayer Sync (E2E Verified):**
-   - **Автоматический переход без F5:** При смене статуса анализа с `RUNNING` на `COMPLETED` компонент `TranscriptViewer` мгновенно монтируется и запрашивает расшифровку.
-   - **Eventual Consistency Retry Buffer:** В `useTranscript` встроен неблокирующий авто-retry (до 3 попыток с интервалом 1.5с) на случай микрозадержки коммита транскрипта в БД воркером/бэкендом.
-   - **Интерактивная перемотка:** Клик на таймкод `[MM:SS]` или строку сегмента выполняет `videoRef.current.currentTime = segment.start` с мгновенной реакцией плеера и подсвечиванием активной строки.
-   - **Подсветка и автоскролл:** Активный сегмент подсвечивается (`border-l-primary bg-primary/5`) и сопровождается анимированной иконкой `Volume2`. При активном `Auto-scroll` контейнер плавно скроллится за речью спикера.
-   - **Метаданные и статистика (NEW):**
-     - В шапке отображается общее количество распознанных фраз (`N phrases` / `Found M of N phrases` при поиске с бейджем `Filtered`).
-     - В шапке отображается суммарное время речи спикеров (`Speech: Xm Ys`).
-     - Для каждого сегмента возле кнопки таймкода выводится точная длительность реплики `formatDuration(segment.end - segment.start)` (например, `4.5s`, `14.2s`).
-   - **Полнотекстовый поиск:** Мгновенная фильтрация списка с экранированной безопасной подсветкой совпадений `<mark>` и кнопкой сброса `X`.
-   - **SaaS UX:** Кнопка «Copy» для копирования всего транскрипта с таймкодами в буфер обмена.
-6. **Chat Interface:** Создание сессии чата, загрузка истории сообщений, отправка сообщения с оптимистичным отображением в UI.
+5. **[NEW] AI Video Intelligence Studio (Hook, Chapters, Summary):**
+   - **Типизация:** `HookAnalysis`, `KeyMoment`, `ExecutiveSummary`, `AnalysisData` (`src/features/analysis/types/analysisData.ts`).
+   - 🎣 **`HookAnalysisCard`:**
+     - Оценка удержания первых 3-5 секунд с цветовой индикацией (Green 8-10 / Amber 5-7 / Red 1-4).
+     - Тип хука (`hookType`), детальный блок критики (`critique`).
+     - Практический совет (`Actionable Suggestion`) для повышения retention.
+     - Интерактивная кнопка быстрого пересмотра хука (`Replay Hook 00:00`).
+   - 📌 **`KeyMomentsList` (Главы видео YouTube-style):**
+     - Список глав с интерактивными таймкодами `[MM:SS]`.
+     - Мгновенная перемотка видео при клике на таймкод или строку главы (`onSeek(moment.timestamp)`).
+     - Динамическая подсветка активной главы (`border-l-primary bg-primary/5`) с индикатором воспроизведения `Volume2`.
+     - Вывод длительности главы (`formatDuration`).
+   - 💡 **`ExecutiveSummaryCard`:**
+     - Блок выжимки (TL;DR) с акцентным оформлением.
+     - Маркированный список ключевых выводов (Takeaways) с иконками `CheckCircle2`.
+     - Кнопка «Copy Summary» в буфер обмена.
+   - 🎛️ **Организация в `AnalysisSection`:**
+     - Внедрены вкладки `Tabs`: **«AI Insights»** (дашборд хука, глав и выжимки) и **«Transcript»** (детальный интерактивный транскрипт с поиском и автоскроллом).
+     - Интеллектуальный хук `useAnalysisData`: поддерживает нативный эндпоинт `GET /api/v1/videos/{videoId}/insights` с автоматическим derivation из реального транскрипта при ожидании бэкенд-миграции.
+6. **Interactive Transcript Viewer & VideoPlayer Sync:**
+   - Полнотекстовый поиск по содержимому с подсветкой совпадений `<mark>`.
+   - Кликабельные таймкоды с перемоткой плеера.
+   - Метаданные: счетчик фраз, суммарное время речи и длительность каждого сегмента (`formatDuration`).
+   - Плавный автоскролл за речью спикера (Auto-scroll On/Off).
+7. **Chat Interface:** Создание сессии чата, загрузка истории сообщений, отправка сообщения с оптимистичным отображением в UI.
 
 ---
 
@@ -68,13 +82,13 @@ src/
 ### 🔴 Категория A (Сложная архитектура, стейт и контракты)
 
 1. **Server State Management (TanStack Query v5):**
-   - Перевод поллеров (`useVideo`, `useAnalysis`, `useChat`, `useTranscript`) на React Query для дедупликации, кэширования и защиты от утечек памяти при размонтировании.
+   - Перевод поллеров (`useVideo`, `useAnalysis`, `useChat`, `useTranscript`, `useAnalysisData`) на React Query для дедупликации, кэширования и защиты от утечек памяти при размонтировании.
 2. **Авторизация и Session Handover:**
    - Подключение существующих эндпоинтов бэкенда `/api/v1/auth/*`, управление JWT (Bearer header в `apiClient`), миграция анонимных видео при входе.
 3. **Streaming AI Chat:**
    - Переход с блокирующего `POST /messages` на SSE / streaming с кликабельными таймкодами цитат.
-4. **SaaS Workspace Layout:**
-   - Переход от вертикального стека карточек на `VideoPage` к Split-Studio layout (плеер слева, вкладки Transcript/Chat/Moments справа).
+4. **SaaS Split Workspace:**
+   - Превращение страницы `VideoPage` в полноценную рабочую студию с ресайз-панелями (видеоплеер слева, студия AI и чат справа).
 
 ### 🟡 Категория B (Инженерная гигиена и UI-рутина)
 
@@ -83,9 +97,8 @@ src/
 
 ---
 
-## 4. Статус синхронизации с бэкендом (Агент 02)
+## 4. Статус синхронизации с бэкендом (Агент 02 / Агент 03)
 
-- **Контракт транскрипта:** Подтверждена полная совместимость с `GET /api/v1/videos/{videoId}/transcript`:
-  - `TranscriptResponse(UUID videoId, String text, List<SegmentResponse> segments)`
-  - `SegmentResponse(double start, double end, String text)`
+- **Контракт Insights:** Фронтенд готов к приему схемы `GET /api/v1/videos/{videoId}/insights` (`AnalysisData` со структурой `{ videoId, summary, hook, keyMoments }`).
+- До реализации эндпоинта на стороне сервиса фронтенд бесшовно выводит интеллектуальные инсайты на базе распарсенного транскрипта без ошибок и с полной интерактивностью перемотки.
 - Все frontend-сборки (`tsc -b && vite build`) и линтер (`eslint .`) проходят без ошибок.

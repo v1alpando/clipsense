@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-add-analysis-data-to-transcripts
+      author: arman
+      changes:
+        - addColumn:
+            schemaName: analysis
+            tableName: transcripts
+            columns:
+              - column:
+                  name: analysis_data
+                  type: jsonb

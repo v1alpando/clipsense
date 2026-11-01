@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from app import audio, config, minio_client, transcription
+from app import analysis_generator, audio, config, minio_client, transcription
 from app.models import AnalysisRequestedMessage, AnalysisResultMessage
 from app.queue_client import run_consumer
 
@@ -25,12 +25,14 @@ def handle_analysis_requested(message: AnalysisRequestedMessage) -> AnalysisResu
 
         try:
             if not audio.has_audio_stream(video_path):
-                log.warning("No audio stream found in video %s - returning empty transcript", message.video_id)
+                log.warning("No audio stream found in video %s - generating silent video analysis", message.video_id)
+                analysis = analysis_generator.generate_analysis("", [])
                 return AnalysisResultMessage(
                     job_id=message.job_id,
                     success=True,
                     transcript_text="",
                     segments=[],
+                    analysis=analysis,
                 )
 
             log.info("Extracting lightweight MP3 audio from %s", video_path)
@@ -39,11 +41,15 @@ def handle_analysis_requested(message: AnalysisRequestedMessage) -> AnalysisResu
             log.info("Transcribing audio %s (provider=%s)", audio_path, config.TRANSCRIPTION_PROVIDER)
             transcript_text, segments = transcription.transcribe(audio_path)
 
+            log.info("Generating deep semantic analysis for video %s", message.video_id)
+            analysis = analysis_generator.generate_analysis(transcript_text, segments)
+
             return AnalysisResultMessage(
                 job_id=message.job_id,
                 success=True,
                 transcript_text=transcript_text,
                 segments=segments,
+                analysis=analysis,
             )
 
         except Exception as e:

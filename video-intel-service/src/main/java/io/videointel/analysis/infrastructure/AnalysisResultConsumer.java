@@ -2,10 +2,13 @@ package io.videointel.analysis.infrastructure;
 
 import io.videointel.analysis.application.AnalysisService;
 import io.videointel.analysis.domain.AnalysisJob;
+import io.videointel.analysis.domain.Hook;
 import io.videointel.analysis.domain.IllegalAnalysisStateTransitionException;
+import io.videointel.analysis.domain.KeyMoment;
 import io.videointel.analysis.domain.Transcript;
 import io.videointel.analysis.domain.TranscriptRepositoryPort;
 import io.videointel.analysis.domain.TranscriptSegment;
+import io.videointel.analysis.domain.VideoAnalysisData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -56,11 +59,43 @@ class AnalysisResultConsumer {
                         : message.segments().stream()
                                 .map(s -> new TranscriptSegment(s.start(), s.end(), s.text()))
                                 .toList();
-                transcriptRepository.save(Transcript.create(job.videoId(), message.transcriptText(), segments));
+
+                VideoAnalysisData analysisData = toDomainAnalysis(message.analysis());
+
+                transcriptRepository.save(Transcript.create(job.videoId(), message.transcriptText(), segments, analysisData));
             }
             analysisService.markCompleted(message.jobId());
         } else {
             analysisService.markFailed(message.jobId(), message.failureReason());
         }
+    }
+
+    private VideoAnalysisData toDomainAnalysis(AnalysisResultMessage.AnalysisPayloadDto dto) {
+        if (dto == null) {
+            return null;
+        }
+
+        Hook hook = null;
+        if (dto.hook() != null) {
+            hook = new Hook(
+                    dto.hook().score(),
+                    dto.hook().type(),
+                    dto.hook().critique(),
+                    dto.hook().suggestion()
+            );
+        }
+
+        List<KeyMoment> keyMoments = dto.keyMoments() == null
+                ? List.of()
+                : dto.keyMoments().stream()
+                        .map(km -> new KeyMoment(km.timestamp(), km.title(), km.description()))
+                        .toList();
+
+        return new VideoAnalysisData(
+                dto.summary(),
+                hook,
+                keyMoments,
+                dto.takeaways() == null ? List.of() : dto.takeaways()
+        );
     }
 }

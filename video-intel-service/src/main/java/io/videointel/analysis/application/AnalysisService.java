@@ -1,5 +1,6 @@
 package io.videointel.analysis.application;
 
+import io.videointel.analysis.domain.AnalysisDataNotFoundException;
 import io.videointel.analysis.domain.AnalysisJob;
 import io.videointel.analysis.domain.AnalysisJobNotFoundException;
 import io.videointel.analysis.domain.AnalysisJobRepositoryPort;
@@ -10,6 +11,7 @@ import io.videointel.analysis.domain.TranscriptNotFoundException;
 import io.videointel.analysis.domain.TranscriptRepositoryPort;
 import io.videointel.analysis.domain.UnknownVideoException;
 import io.videointel.analysis.domain.VideoAccessDeniedException;
+import io.videointel.analysis.domain.VideoAnalysisData;
 import io.videointel.analysis.domain.VideoNotReadyException;
 import io.videointel.shared.ownership.Owner;
 import io.videointel.video.application.VideoLookupPort;
@@ -73,6 +75,15 @@ public class AnalysisService {
 
         return transcriptRepository.findByVideoId(videoId)
                 .orElseThrow(() -> new TranscriptNotFoundException(videoId));
+    }
+
+    @Transactional(readOnly = true)
+    public VideoAnalysisData getAnalysisData(UUID videoId, Owner requester) {
+        Transcript transcript = getTranscript(videoId, requester);
+        if (transcript.analysisData() == null) {
+            throw new AnalysisDataNotFoundException(videoId);
+        }
+        return transcript.analysisData();
     }
 
     @Transactional

@@ -37,18 +37,28 @@ class TranscriptEntity implements Persistable<UUID> {
     @Column(name = "segments", columnDefinition = "jsonb")
     private List<SegmentRecord> segments;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "analysis_data", columnDefinition = "jsonb")
+    private AnalysisDataRecord analysisData;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Transient
     private boolean isNew = true;
 
-    TranscriptEntity(UUID id, UUID videoId, String text, List<SegmentRecord> segments, Instant createdAt) {
+    TranscriptEntity(UUID id, UUID videoId, String text, List<SegmentRecord> segments,
+                     AnalysisDataRecord analysisData, Instant createdAt) {
         this.id = id;
         this.videoId = videoId;
         this.text = text;
         this.segments = segments;
+        this.analysisData = analysisData;
         this.createdAt = createdAt;
+    }
+
+    TranscriptEntity(UUID id, UUID videoId, String text, List<SegmentRecord> segments, Instant createdAt) {
+        this(id, videoId, text, segments, null, createdAt);
     }
 
     @PostLoad
@@ -58,5 +68,18 @@ class TranscriptEntity implements Persistable<UUID> {
     }
 
     record SegmentRecord(double start, double end, String text) {
+    }
+
+    record AnalysisDataRecord(
+            String summary,
+            HookRecord hook,
+            List<KeyMomentRecord> keyMoments,
+            List<String> takeaways
+    ) {
+        record HookRecord(int score, String type, String critique, String suggestion) {
+        }
+
+        record KeyMomentRecord(double timestamp, String title, String description) {
+        }
     }
 }
